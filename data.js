@@ -1,5 +1,5 @@
 const CV_CONFIG = {
-  totalCVs: 9,
+  totalCVs: 11,
   cvFolder: 'cvs/',
   cvExt: '.jpg',
   totalFeedbacks: 6,
