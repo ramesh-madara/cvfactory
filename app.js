@@ -27,6 +27,8 @@
   let touchStartX = 0;
   let touchDeltaX = 0;
   let isModalDragging = false;
+  let isSyncingReel = false;
+  let reelScrollRaf = null;
 
   const html = document.documentElement;
   const body = document.body;
@@ -41,7 +43,7 @@
   const cvGalleryGrid = document.getElementById('cv-gallery-grid');
   const feedbackGrid = document.getElementById('feedback-grid');
   const imageModal = document.getElementById('image-modal');
-  const modalTrack = document.getElementById('modal-track');
+  const modalImage = document.getElementById('modal-image');
   const modalViewport = document.querySelector('.modal-viewport');
   const modalCaption = document.getElementById('modal-caption');
   const modalCounter = document.getElementById('modal-counter');
@@ -360,79 +362,126 @@
     });
   }
 
-  function buildModalSlides() {
-    modalTrack.innerHTML = modalGallery
-      .map(
-        (item) => `
-        <div class="modal-slide flex h-full items-center justify-center px-2">
-          <img
-            src="${item.src}"
-            alt="${item.alt}"
-            draggable="false"
-            class="max-h-[calc(100vh-13rem)] max-w-full rounded-lg object-contain shadow-2xl"
-          />
-        </div>
-      `
-      )
-      .join('');
-  }
-
   function buildModalFilmstrip() {
     modalFilmstrip.innerHTML = modalGallery
       .map(
         (item, index) => `
         <button
           type="button"
-          class="modal-thumb h-14 w-10 overflow-hidden rounded-md sm:h-16 sm:w-12 ${index === modalIndex ? 'active' : ''}"
+          class="modal-thumb overflow-hidden rounded-md ${index === modalIndex ? 'active' : ''}"
           data-index="${index}"
           aria-label="View ${item.alt}"
           aria-current="${index === modalIndex ? 'true' : 'false'}"
         >
-          <img src="${item.src}" alt="" draggable="false" class="h-full w-full object-cover object-top" loading="lazy" />
+          <img src="${item.src}" alt="" draggable="false" class="h-full w-full object-cover object-top pointer-events-none" loading="lazy" />
         </button>
       `
       )
       .join('');
   }
 
-  function scrollFilmstripToActive() {
-    const activeThumb = modalFilmstrip.querySelector('.modal-thumb.active');
-    if (activeThumb) {
-      activeThumb.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-    }
+  function getReelThumbs() {
+    return modalFilmstrip.querySelectorAll('.modal-thumb');
   }
 
-  function updateModalPosition(animate) {
-    if (animate === false) {
-      modalTrack.classList.add('dragging');
+  function getCenteredReelIndex() {
+    const thumbs = getReelThumbs();
+    if (!thumbs.length) return 0;
+
+    const containerCenter = modalFilmstrip.scrollLeft + modalFilmstrip.clientWidth / 2;
+    let closest = 0;
+    let minDistance = Infinity;
+
+    thumbs.forEach((thumb, index) => {
+      const thumbCenter = thumb.offsetLeft + thumb.offsetWidth / 2;
+      const distance = Math.abs(thumbCenter - containerCenter);
+      if (distance < minDistance) {
+        minDistance = distance;
+        closest = index;
+      }
+    });
+
+    return closest;
+  }
+
+  function scrollReelToIndex(index, smooth) {
+    const thumbs = getReelThumbs();
+    const thumb = thumbs[index];
+    if (!thumb) return;
+
+    isSyncingReel = true;
+    const targetLeft = thumb.offsetLeft - (modalFilmstrip.clientWidth - thumb.offsetWidth) / 2;
+
+    modalFilmstrip.scrollTo({
+      left: targetLeft,
+      behavior: smooth ? 'smooth' : 'instant',
+    });
+
+    window.setTimeout(
+      () => {
+        isSyncingReel = false;
+      },
+      smooth ? 320 : 0
+    );
+  }
+
+  function updateMainImage(animate) {
+    const item = modalGallery[modalIndex];
+    if (!item) return;
+
+    if (animate) {
+      modalImage.style.opacity = '0';
+      window.setTimeout(() => {
+        modalImage.src = item.src;
+        modalImage.alt = item.alt;
+        modalImage.style.opacity = '1';
+      }, 120);
     } else {
-      modalTrack.classList.remove('dragging');
+      modalImage.src = item.src;
+      modalImage.alt = item.alt;
+      modalImage.style.opacity = '1';
     }
-    modalTrack.style.transform = `translateX(-${modalIndex * 100}%)`;
   }
 
-  function updateModalUI() {
+  function updateModalMeta() {
     const item = modalGallery[modalIndex];
     if (!item) return;
 
     modalCaption.textContent = item.caption;
     modalCounter.textContent = `${modalIndex + 1} / ${modalGallery.length}`;
 
-    modalFilmstrip.querySelectorAll('.modal-thumb').forEach((thumb, index) => {
+    getReelThumbs().forEach((thumb, index) => {
       const isActive = index === modalIndex;
       thumb.classList.toggle('active', isActive);
       thumb.setAttribute('aria-current', String(isActive));
     });
 
-    scrollFilmstripToActive();
     preloadModalImages(modalIndex);
   }
 
-  function goToModalIndex(index, animate) {
+  function syncFromReelScroll() {
+    if (isSyncingReel) return;
+
+    const centeredIndex = getCenteredReelIndex();
+    if (centeredIndex === modalIndex) return;
+
+    modalIndex = centeredIndex;
+    updateMainImage(true);
+    updateModalMeta();
+  }
+
+  function onReelScroll() {
+    if (reelScrollRaf) cancelAnimationFrame(reelScrollRaf);
+    reelScrollRaf = requestAnimationFrame(syncFromReelScroll);
+  }
+
+  function goToModalIndex(index, smoothReel) {
     if (modalGallery.length === 0) return;
+
     modalIndex = wrapIndex(index, modalGallery.length);
-    updateModalPosition(animate);
-    updateModalUI();
+    updateMainImage(true);
+    updateModalMeta();
+    scrollReelToIndex(modalIndex, smoothReel !== false);
   }
 
   function goToModalNext() {
@@ -449,14 +498,18 @@
     modalGallery = gallery;
     modalIndex = Math.min(Math.max(startIndex, 0), gallery.length - 1);
 
-    buildModalSlides();
     buildModalFilmstrip();
-    updateModalPosition(true);
-    updateModalUI();
 
     imageModal.classList.remove('hidden');
     imageModal.classList.add('flex');
     body.classList.add('modal-open');
+
+    requestAnimationFrame(() => {
+      scrollReelToIndex(modalIndex, false);
+      updateMainImage(false);
+      updateModalMeta();
+    });
+
     modalClose.focus();
   }
 
@@ -464,8 +517,8 @@
     imageModal.classList.add('hidden');
     imageModal.classList.remove('flex');
     body.classList.remove('modal-open');
-    modalTrack.innerHTML = '';
     modalFilmstrip.innerHTML = '';
+    modalImage.src = '';
     modalGallery = [];
     modalIndex = 0;
   }
@@ -482,7 +535,6 @@
         touchStartX = event.touches[0].clientX;
         touchDeltaX = 0;
         isModalDragging = true;
-        modalTrack.classList.add('dragging');
       },
       { passive: true }
     );
@@ -492,9 +544,6 @@
       (event) => {
         if (!isModalDragging) return;
         touchDeltaX = event.touches[0].clientX - touchStartX;
-        const width = modalViewport.clientWidth || 1;
-        const offset = -modalIndex * 100 + (touchDeltaX / width) * 100;
-        modalTrack.style.transform = `translateX(${offset}%)`;
       },
       { passive: true }
     );
@@ -504,19 +553,24 @@
       () => {
         if (!isModalDragging) return;
         isModalDragging = false;
-        modalTrack.classList.remove('dragging');
 
         if (Math.abs(touchDeltaX) > 50) {
           if (touchDeltaX < 0) goToModalNext();
           else goToModalPrev();
-        } else {
-          updateModalPosition(true);
         }
 
         touchDeltaX = 0;
       },
       { passive: true }
     );
+  }
+
+  function bindReelScroll() {
+    modalFilmstrip.addEventListener('scroll', onReelScroll, { passive: true });
+
+    if ('onscrollend' in modalFilmstrip) {
+      modalFilmstrip.addEventListener('scrollend', syncFromReelScroll);
+    }
   }
 
   function createGlassCard(innerHTML) {
@@ -646,6 +700,7 @@
     });
 
     bindModalSwipe();
+    bindReelScroll();
 
     imageModal.addEventListener('click', (event) => {
       if (event.target === imageModal) closeModal();

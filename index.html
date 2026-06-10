@@ -152,23 +152,42 @@
       touch-action: pan-y pinch-zoom;
     }
 
-    .modal-track {
-      transition: transform 0.32s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-      will-change: transform;
+    #modal-image {
+      transition: opacity 0.2s ease;
     }
 
-    .modal-track.dragging {
-      transition: none;
+    .modal-reel-wrap {
+      --thumb-w: 2.75rem;
+      --thumb-h: 3.5rem;
     }
 
-    .modal-slide {
-      flex: 0 0 100%;
-      width: 100%;
+    @media (min-width: 640px) {
+      .modal-reel-wrap {
+        --thumb-w: 3rem;
+        --thumb-h: 4rem;
+      }
+    }
+
+    .modal-reel-frame {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      z-index: 10;
+      width: calc(var(--thumb-w) + 6px);
+      height: calc(var(--thumb-h) + 6px);
+      transform: translate(-50%, -50%);
+      border: 2px solid #f59e0b;
+      border-radius: 0.5rem;
+      pointer-events: none;
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
     }
 
     .modal-filmstrip {
       -webkit-overflow-scrolling: touch;
       scrollbar-width: none;
+      scroll-snap-type: x mandatory;
+      padding-left: calc(50% - var(--thumb-w) / 2);
+      padding-right: calc(50% - var(--thumb-w) / 2);
     }
 
     .modal-filmstrip::-webkit-scrollbar {
@@ -177,17 +196,15 @@
 
     .modal-thumb {
       flex: 0 0 auto;
-      transition: transform 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease;
+      width: var(--thumb-w);
+      height: var(--thumb-h);
+      scroll-snap-align: center;
+      opacity: 0.45;
+      transition: opacity 0.2s ease, transform 0.2s ease;
     }
 
     .modal-thumb.active {
       opacity: 1;
-      transform: scale(1.05);
-      box-shadow: 0 0 0 2px #f59e0b;
-    }
-
-    .modal-thumb:not(.active) {
-      opacity: 0.55;
     }
   </style>
 </head>
@@ -313,12 +330,18 @@
       </button>
     </div>
 
-    <div class="modal-viewport relative mx-auto flex w-full max-w-5xl flex-1 items-center overflow-hidden px-2 sm:px-4">
+    <div class="modal-viewport relative mx-auto flex w-full max-w-5xl flex-1 items-center justify-center overflow-hidden px-4 sm:px-6">
       <button id="modal-prev" type="button" class="absolute left-2 z-10 hidden h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-neutral-100 transition-colors hover:bg-white/20 sm:flex" aria-label="Previous image">
         <i class="fa-solid fa-chevron-left"></i>
       </button>
 
-      <div id="modal-track" class="modal-track flex h-full w-full"></div>
+      <img
+        id="modal-image"
+        src=""
+        alt=""
+        draggable="false"
+        class="max-h-[calc(100vh-14rem)] max-w-full rounded-lg object-contain shadow-2xl"
+      />
 
       <button id="modal-next" type="button" class="absolute right-2 z-10 hidden h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-neutral-100 transition-colors hover:bg-white/20 sm:flex" aria-label="Next image">
         <i class="fa-solid fa-chevron-right"></i>
@@ -327,7 +350,10 @@
 
     <div class="shrink-0 space-y-3 px-4 pb-4 pt-2 sm:px-6 sm:pb-6">
       <p id="modal-caption" class="text-center text-sm font-medium text-neutral-300"></p>
-      <div id="modal-filmstrip" class="modal-filmstrip flex gap-2 overflow-x-auto px-1 py-2"></div>
+      <div class="modal-reel-wrap relative py-2">
+        <div class="modal-reel-frame" aria-hidden="true"></div>
+        <div id="modal-filmstrip" class="modal-filmstrip flex gap-2 overflow-x-auto"></div>
+      </div>
     </div>
   </div>
 
