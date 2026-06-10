@@ -20,6 +20,13 @@
   let isAnimating = false;
   let gridCols = 1;
   let openDropdown = null;
+  let cvGallery = [];
+  let feedbackGallery = [];
+  let modalGallery = [];
+  let modalIndex = 0;
+  let touchStartX = 0;
+  let touchDeltaX = 0;
+  let isModalDragging = false;
 
   const html = document.documentElement;
   const body = document.body;
@@ -34,9 +41,14 @@
   const cvGalleryGrid = document.getElementById('cv-gallery-grid');
   const feedbackGrid = document.getElementById('feedback-grid');
   const imageModal = document.getElementById('image-modal');
-  const modalImage = document.getElementById('modal-image');
+  const modalTrack = document.getElementById('modal-track');
+  const modalViewport = document.querySelector('.modal-viewport');
   const modalCaption = document.getElementById('modal-caption');
+  const modalCounter = document.getElementById('modal-counter');
+  const modalFilmstrip = document.getElementById('modal-filmstrip');
   const modalClose = document.getElementById('modal-close');
+  const modalPrev = document.getElementById('modal-prev');
+  const modalNext = document.getElementById('modal-next');
   const gridDropdownMounts = document.querySelectorAll('[data-grid-dropdown-mount]');
   const galleryGrids = document.querySelectorAll('.gallery-grid');
 
@@ -319,10 +331,129 @@
     applyGridCols(getActiveGridCols(), false);
   }
 
-  function openModal(src, caption, alt) {
-    modalImage.src = src;
-    modalImage.alt = alt;
-    modalCaption.textContent = caption;
+  function buildGalleryItems(folder, total, ext, labelPrefix, subtitle) {
+    const items = [];
+    for (let i = total; i >= 1; i -= 1) {
+      items.push({
+        src: `${folder}${i}${ext}`,
+        caption: `${labelPrefix} ${String(i).padStart(2, '0')}`,
+        alt: `${labelPrefix.trim()} ${i}`,
+        subtitle,
+      });
+    }
+    return items;
+  }
+
+  function wrapIndex(index, length) {
+    if (length === 0) return 0;
+    return ((index % length) + length) % length;
+  }
+
+  function preloadModalImages(index) {
+    if (modalGallery.length === 0) return;
+    [index - 1, index + 1].forEach((i) => {
+      const item = modalGallery[wrapIndex(i, modalGallery.length)];
+      if (item) {
+        const img = new Image();
+        img.src = item.src;
+      }
+    });
+  }
+
+  function buildModalSlides() {
+    modalTrack.innerHTML = modalGallery
+      .map(
+        (item) => `
+        <div class="modal-slide flex h-full items-center justify-center px-2">
+          <img
+            src="${item.src}"
+            alt="${item.alt}"
+            draggable="false"
+            class="max-h-[calc(100vh-13rem)] max-w-full rounded-lg object-contain shadow-2xl"
+          />
+        </div>
+      `
+      )
+      .join('');
+  }
+
+  function buildModalFilmstrip() {
+    modalFilmstrip.innerHTML = modalGallery
+      .map(
+        (item, index) => `
+        <button
+          type="button"
+          class="modal-thumb h-14 w-10 overflow-hidden rounded-md sm:h-16 sm:w-12 ${index === modalIndex ? 'active' : ''}"
+          data-index="${index}"
+          aria-label="View ${item.alt}"
+          aria-current="${index === modalIndex ? 'true' : 'false'}"
+        >
+          <img src="${item.src}" alt="" draggable="false" class="h-full w-full object-cover object-top" loading="lazy" />
+        </button>
+      `
+      )
+      .join('');
+  }
+
+  function scrollFilmstripToActive() {
+    const activeThumb = modalFilmstrip.querySelector('.modal-thumb.active');
+    if (activeThumb) {
+      activeThumb.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  }
+
+  function updateModalPosition(animate) {
+    if (animate === false) {
+      modalTrack.classList.add('dragging');
+    } else {
+      modalTrack.classList.remove('dragging');
+    }
+    modalTrack.style.transform = `translateX(-${modalIndex * 100}%)`;
+  }
+
+  function updateModalUI() {
+    const item = modalGallery[modalIndex];
+    if (!item) return;
+
+    modalCaption.textContent = item.caption;
+    modalCounter.textContent = `${modalIndex + 1} / ${modalGallery.length}`;
+
+    modalFilmstrip.querySelectorAll('.modal-thumb').forEach((thumb, index) => {
+      const isActive = index === modalIndex;
+      thumb.classList.toggle('active', isActive);
+      thumb.setAttribute('aria-current', String(isActive));
+    });
+
+    scrollFilmstripToActive();
+    preloadModalImages(modalIndex);
+  }
+
+  function goToModalIndex(index, animate) {
+    if (modalGallery.length === 0) return;
+    modalIndex = wrapIndex(index, modalGallery.length);
+    updateModalPosition(animate);
+    updateModalUI();
+  }
+
+  function goToModalNext() {
+    goToModalIndex(modalIndex + 1);
+  }
+
+  function goToModalPrev() {
+    goToModalIndex(modalIndex - 1);
+  }
+
+  function openModal(gallery, startIndex) {
+    if (!gallery.length) return;
+
+    modalGallery = gallery;
+    modalIndex = Math.min(Math.max(startIndex, 0), gallery.length - 1);
+
+    buildModalSlides();
+    buildModalFilmstrip();
+    updateModalPosition(true);
+    updateModalUI();
+
     imageModal.classList.remove('hidden');
     imageModal.classList.add('flex');
     body.classList.add('modal-open');
@@ -333,7 +464,59 @@
     imageModal.classList.add('hidden');
     imageModal.classList.remove('flex');
     body.classList.remove('modal-open');
-    modalImage.src = '';
+    modalTrack.innerHTML = '';
+    modalFilmstrip.innerHTML = '';
+    modalGallery = [];
+    modalIndex = 0;
+  }
+
+  function isModalOpen() {
+    return imageModal.classList.contains('flex');
+  }
+
+  function bindModalSwipe() {
+    modalViewport.addEventListener(
+      'touchstart',
+      (event) => {
+        if (!isModalOpen() || modalGallery.length <= 1) return;
+        touchStartX = event.touches[0].clientX;
+        touchDeltaX = 0;
+        isModalDragging = true;
+        modalTrack.classList.add('dragging');
+      },
+      { passive: true }
+    );
+
+    modalViewport.addEventListener(
+      'touchmove',
+      (event) => {
+        if (!isModalDragging) return;
+        touchDeltaX = event.touches[0].clientX - touchStartX;
+        const width = modalViewport.clientWidth || 1;
+        const offset = -modalIndex * 100 + (touchDeltaX / width) * 100;
+        modalTrack.style.transform = `translateX(${offset}%)`;
+      },
+      { passive: true }
+    );
+
+    modalViewport.addEventListener(
+      'touchend',
+      () => {
+        if (!isModalDragging) return;
+        isModalDragging = false;
+        modalTrack.classList.remove('dragging');
+
+        if (Math.abs(touchDeltaX) > 50) {
+          if (touchDeltaX < 0) goToModalNext();
+          else goToModalPrev();
+        } else {
+          updateModalPosition(true);
+        }
+
+        touchDeltaX = 0;
+      },
+      { passive: true }
+    );
   }
 
   function createGlassCard(innerHTML) {
@@ -372,52 +555,68 @@
     `;
   }
 
-  function bindGalleryClicks(grid) {
-    grid.querySelectorAll('.gallery-card').forEach((card) => {
+  function bindGalleryClicks(grid, gallery) {
+    grid.querySelectorAll('.gallery-card').forEach((card, index) => {
       card.addEventListener('click', () => {
-        openModal(card.dataset.src, card.dataset.caption, card.dataset.alt);
+        openModal(gallery, index);
       });
     });
   }
 
   function renderCVGallery() {
+    cvGallery = buildGalleryItems(
+      CV_CONFIG.cvFolder,
+      CV_CONFIG.totalCVs,
+      CV_CONFIG.cvExt,
+      'Layout',
+      'Premium CV Design'
+    );
     cvGalleryGrid.innerHTML = '';
 
-    for (let i = CV_CONFIG.totalCVs; i >= 1; i -= 1) {
+    cvGallery.forEach((item, index) => {
+      const num = CV_CONFIG.totalCVs - index;
       const card = createGlassCard(
         renderImageCard(
           CV_CONFIG.cvFolder,
-          i,
+          num,
           CV_CONFIG.cvExt,
-          `Resume layout ${i}`,
-          `Layout ${String(i).padStart(2, '0')}`,
-          'Premium CV Design'
+          item.alt,
+          item.caption,
+          item.subtitle
         )
       );
       cvGalleryGrid.appendChild(card);
-    }
+    });
 
-    bindGalleryClicks(cvGalleryGrid);
+    bindGalleryClicks(cvGalleryGrid, cvGallery);
   }
 
   function renderFeedbacks() {
+    feedbackGallery = buildGalleryItems(
+      CV_CONFIG.feedbackFolder,
+      CV_CONFIG.totalFeedbacks,
+      CV_CONFIG.feedbackExt,
+      'Feedback',
+      'Client Review'
+    );
     feedbackGrid.innerHTML = '';
 
-    for (let i = CV_CONFIG.totalFeedbacks; i >= 1; i -= 1) {
+    feedbackGallery.forEach((item, index) => {
+      const num = CV_CONFIG.totalFeedbacks - index;
       const card = createGlassCard(
         renderImageCard(
           CV_CONFIG.feedbackFolder,
-          i,
+          num,
           CV_CONFIG.feedbackExt,
-          `Client feedback ${i}`,
-          `Feedback ${String(i).padStart(2, '0')}`,
-          'Client Review'
+          item.alt,
+          item.caption,
+          item.subtitle
         )
       );
       feedbackGrid.appendChild(card);
-    }
+    });
 
-    bindGalleryClicks(feedbackGrid);
+    bindGalleryClicks(feedbackGrid, feedbackGallery);
   }
 
   function bindEvents() {
@@ -430,6 +629,23 @@
     });
 
     modalClose.addEventListener('click', closeModal);
+    modalPrev.addEventListener('click', (event) => {
+      event.stopPropagation();
+      goToModalPrev();
+    });
+    modalNext.addEventListener('click', (event) => {
+      event.stopPropagation();
+      goToModalNext();
+    });
+
+    modalFilmstrip.addEventListener('click', (event) => {
+      const thumb = event.target.closest('.modal-thumb');
+      if (!thumb) return;
+      event.stopPropagation();
+      goToModalIndex(Number(thumb.dataset.index));
+    });
+
+    bindModalSwipe();
 
     imageModal.addEventListener('click', (event) => {
       if (event.target === imageModal) closeModal();
@@ -441,9 +657,20 @@
           closeAllDropdowns();
           return;
         }
-        if (imageModal.classList.contains('flex')) {
+        if (isModalOpen()) {
           closeModal();
         }
+        return;
+      }
+
+      if (!isModalOpen() || modalGallery.length <= 1) return;
+
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        goToModalNext();
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        goToModalPrev();
       }
     });
 
