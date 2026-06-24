@@ -41,7 +41,7 @@ When hosted on **HTTPS** (GitHub Pages, Netlify, etc.):
 
 **Offline behavior:** the UI shell loads offline; CV and feedback images are cached as you view them.
 
-Regenerate PNG icons after changing the logo:
+Regenerate PNG install icons from `icons/icon.svg`:
 
 ```bash
 pip install pillow
