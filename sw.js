@@ -12,6 +12,7 @@ const SHELL_FILES = new Set([
   'icon.svg',
   'icon-192.png',
   'icon-512.png',
+  'favicon.png',
 ]);
 
 function isShellAsset(pathname) {
@@ -24,8 +25,8 @@ function cacheKey(pathname) {
   return SHELL_FILES.has(file) ? `./${file}` : pathname;
 }
 
-function isImageRequest(url) {
-  return /\/(cvs|customerFeedback)\/[^/]+\.(jpe?g|png|webp|gif)$/i.test(url.pathname);
+function isMediaRequest(url) {
+  return /\/(cvs|customerFeedback)\/[^/]+\.(jpe?g|png|webp|gif|mp4)$/i.test(url.pathname);
 }
 
 function isSameOrigin(url) {
@@ -45,6 +46,7 @@ self.addEventListener('install', (event) => {
           './pwa.js',
           './manifest.webmanifest',
           './offline.html',
+          './favicon.png',
           './icons/icon.svg',
           './icons/icon-192.png',
           './icons/icon-512.png',
@@ -89,7 +91,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (isImageRequest(url)) {
+  if (isMediaRequest(url)) {
     event.respondWith(
       caches.open(IMAGE_CACHE).then(async (cache) => {
         const cached = await cache.match(request);

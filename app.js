@@ -44,6 +44,7 @@
   const feedbackGrid = document.getElementById('feedback-grid');
   const imageModal = document.getElementById('image-modal');
   const modalImage = document.getElementById('modal-image');
+  const modalVideo = document.getElementById('modal-video');
   const modalViewport = document.querySelector('.modal-viewport');
   const modalCaption = document.getElementById('modal-caption');
   const modalCounter = document.getElementById('modal-counter');
@@ -333,17 +334,62 @@
     applyGridCols(getActiveGridCols(), false);
   }
 
+  function isVideoSrc(src) {
+    return /\.mp4(\?|$)/i.test(src);
+  }
+
+  function mediaTypeFromSrc(src) {
+    return isVideoSrc(src) ? 'video' : 'image';
+  }
+
   function buildGalleryItems(folder, total, ext, labelPrefix, subtitle) {
     const items = [];
     for (let i = total; i >= 1; i -= 1) {
+      const src = `${folder}${i}${ext}`;
       items.push({
-        src: `${folder}${i}${ext}`,
+        src,
+        type: mediaTypeFromSrc(src),
         caption: `${labelPrefix} ${String(i).padStart(2, '0')}`,
         alt: `${labelPrefix.trim()} ${i}`,
         subtitle,
       });
     }
     return items;
+  }
+
+  function buildFeedbackItems() {
+    const folder = CV_CONFIG.feedbackFolder;
+    const total = CV_CONFIG.totalFeedbacks;
+    const fileList = CV_CONFIG.feedbackFiles;
+    const items = [];
+
+    for (let i = total; i >= 1; i -= 1) {
+      let src;
+      if (Array.isArray(fileList) && fileList.length > 0) {
+        const fileIndex = total - i;
+        const filename = fileList[fileIndex] || `${i}${CV_CONFIG.feedbackExt || '.jpg'}`;
+        src = `${folder}${filename}`;
+      } else {
+        src = `${folder}${i}${CV_CONFIG.feedbackExt || '.jpg'}`;
+      }
+
+      items.push({
+        src,
+        type: mediaTypeFromSrc(src),
+        caption: `Feedback ${String(i).padStart(2, '0')}`,
+        alt: `Client feedback ${i}`,
+        subtitle: 'Client Review',
+      });
+    }
+
+    return items;
+  }
+
+  function renderThumbMedia(item) {
+    if (item.type === 'video') {
+      return `<video src="${item.src}" muted playsinline preload="metadata" class="h-full w-full object-cover object-top pointer-events-none"></video>`;
+    }
+    return `<img src="${item.src}" alt="" draggable="false" class="h-full w-full object-cover object-top pointer-events-none" loading="lazy" />`;
   }
 
   function wrapIndex(index, length) {
@@ -355,10 +401,9 @@
     if (modalGallery.length === 0) return;
     [index - 1, index + 1].forEach((i) => {
       const item = modalGallery[wrapIndex(i, modalGallery.length)];
-      if (item) {
-        const img = new Image();
-        img.src = item.src;
-      }
+      if (!item || item.type === 'video') return;
+      const img = new Image();
+      img.src = item.src;
     });
   }
 
@@ -373,11 +418,56 @@
           aria-label="View ${item.alt}"
           aria-current="${index === modalIndex ? 'true' : 'false'}"
         >
-          <img src="${item.src}" alt="" draggable="false" class="h-full w-full object-cover object-top pointer-events-none" loading="lazy" />
+          ${renderThumbMedia(item)}
         </button>
       `
       )
       .join('');
+  }
+
+  function pauseModalVideo() {
+    if (!modalVideo.paused) {
+      modalVideo.pause();
+    }
+  }
+
+  function clearModalVideo() {
+    pauseModalVideo();
+    modalVideo.removeAttribute('src');
+    modalVideo.load();
+    modalVideo.classList.add('hidden');
+  }
+
+  function updateMainMedia(animate) {
+    const item = modalGallery[modalIndex];
+    if (!item) return;
+
+    pauseModalVideo();
+
+    if (item.type === 'video') {
+      modalImage.classList.add('hidden');
+      modalImage.removeAttribute('src');
+      modalVideo.classList.remove('hidden');
+      modalVideo.src = item.src;
+      modalVideo.load();
+      return;
+    }
+
+    clearModalVideo();
+    modalImage.classList.remove('hidden');
+
+    if (animate) {
+      modalImage.style.opacity = '0';
+      window.setTimeout(() => {
+        modalImage.src = item.src;
+        modalImage.alt = item.alt;
+        modalImage.style.opacity = '1';
+      }, 120);
+    } else {
+      modalImage.src = item.src;
+      modalImage.alt = item.alt;
+      modalImage.style.opacity = '1';
+    }
   }
 
   function getReelThumbs() {
@@ -426,21 +516,7 @@
   }
 
   function updateMainImage(animate) {
-    const item = modalGallery[modalIndex];
-    if (!item) return;
-
-    if (animate) {
-      modalImage.style.opacity = '0';
-      window.setTimeout(() => {
-        modalImage.src = item.src;
-        modalImage.alt = item.alt;
-        modalImage.style.opacity = '1';
-      }, 120);
-    } else {
-      modalImage.src = item.src;
-      modalImage.alt = item.alt;
-      modalImage.style.opacity = '1';
-    }
+    updateMainMedia(animate);
   }
 
   function updateModalMeta() {
@@ -519,6 +595,7 @@
     body.classList.remove('modal-open');
     modalFilmstrip.innerHTML = '';
     modalImage.src = '';
+    clearModalVideo();
     modalGallery = [];
     modalIndex = 0;
   }
@@ -581,32 +658,64 @@
     return card;
   }
 
-  function renderImageCard(folder, index, ext, alt, label, subtitle) {
-    const src = `${folder}${index}${ext}`;
-    return `
-      <button
-        type="button"
-        class="gallery-card relative block w-full cursor-pointer overflow-hidden rounded-2xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-50 dark:focus-visible:ring-offset-neutral-950"
-        data-src="${src}"
-        data-caption="${label}"
-        data-alt="${alt}"
-        aria-label="View ${alt} fullscreen"
-      >
-        <div class="relative aspect-[3/4] overflow-hidden bg-neutral-200/30 dark:bg-neutral-800/30">
+  function renderMediaCard(item) {
+    const isVideo = item.type === 'video';
+    const media = isVideo
+      ? `
+          <video
+            src="${item.src}"
+            muted
+            playsinline
+            preload="metadata"
+            draggable="false"
+            class="pointer-events-none h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-[1.03]"
+          ></video>
+          <span class="media-play-badge absolute inset-0 flex items-center justify-center bg-neutral-950/25">
+            <span class="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 text-neutral-900 shadow-lg">
+              <i class="fa-solid fa-play ml-0.5 text-sm"></i>
+            </span>
+          </span>
+        `
+      : `
           <img
-            src="${src}"
-            alt="${alt}"
+            src="${item.src}"
+            alt="${item.alt}"
             loading="lazy"
             draggable="false"
             class="pointer-events-none h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-[1.03]"
           />
+        `;
+
+    return `
+      <button
+        type="button"
+        class="gallery-card relative block w-full cursor-pointer overflow-hidden rounded-2xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-50 dark:focus-visible:ring-offset-neutral-950"
+        data-src="${item.src}"
+        data-type="${item.type}"
+        data-caption="${item.caption}"
+        data-alt="${item.alt}"
+        aria-label="View ${item.alt} fullscreen"
+      >
+        <div class="relative aspect-[3/4] overflow-hidden bg-neutral-200/30 dark:bg-neutral-800/30">
+          ${media}
           <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-neutral-950/80 via-neutral-950/20 to-transparent p-4">
-            <p class="text-sm font-medium text-neutral-100">${label}</p>
-            <p class="text-xs text-neutral-300/80">${subtitle}</p>
+            <p class="text-sm font-medium text-neutral-100">${item.caption}</p>
+            <p class="text-xs text-neutral-300/80">${item.subtitle}${isVideo ? ' · Video' : ''}</p>
           </div>
         </div>
       </button>
     `;
+  }
+
+  function renderImageCard(folder, index, ext, alt, label, subtitle) {
+    const item = {
+      src: `${folder}${index}${ext}`,
+      type: mediaTypeFromSrc(`${folder}${index}${ext}`),
+      caption: label,
+      alt,
+      subtitle,
+    };
+    return renderMediaCard(item);
   }
 
   function bindGalleryClicks(grid, gallery) {
@@ -646,27 +755,11 @@
   }
 
   function renderFeedbacks() {
-    feedbackGallery = buildGalleryItems(
-      CV_CONFIG.feedbackFolder,
-      CV_CONFIG.totalFeedbacks,
-      CV_CONFIG.feedbackExt,
-      'Feedback',
-      'Client Review'
-    );
+    feedbackGallery = buildFeedbackItems();
     feedbackGrid.innerHTML = '';
 
-    feedbackGallery.forEach((item, index) => {
-      const num = CV_CONFIG.totalFeedbacks - index;
-      const card = createGlassCard(
-        renderImageCard(
-          CV_CONFIG.feedbackFolder,
-          num,
-          CV_CONFIG.feedbackExt,
-          item.alt,
-          item.caption,
-          item.subtitle
-        )
-      );
+    feedbackGallery.forEach((item) => {
+      const card = createGlassCard(renderMediaCard(item));
       feedbackGrid.appendChild(card);
     });
 

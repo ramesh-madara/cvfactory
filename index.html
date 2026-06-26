@@ -12,7 +12,6 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="CV Factory" />
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
   <link rel="icon" type="image/png" href="favicon.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <script src="https://cdn.tailwindcss.com"></script>
@@ -161,8 +160,12 @@
       touch-action: pan-y pinch-zoom;
     }
 
-    #modal-image {
+    #modal-video {
       transition: opacity 0.2s ease;
+    }
+
+    .media-play-badge {
+      pointer-events: none;
     }
 
     .modal-reel-wrap {
@@ -351,6 +354,13 @@
         draggable="false"
         class="max-h-[calc(100vh-14rem)] max-w-full rounded-lg object-contain shadow-2xl"
       />
+      <video
+        id="modal-video"
+        class="hidden max-h-[calc(100vh-14rem)] max-w-full rounded-lg object-contain shadow-2xl"
+        controls
+        playsinline
+        preload="metadata"
+      ></video>
 
       <button id="modal-next" type="button" class="absolute right-2 z-10 hidden h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-neutral-100 transition-colors hover:bg-white/20 sm:flex" aria-label="Next image">
         <i class="fa-solid fa-chevron-right"></i>

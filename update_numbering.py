@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Scan cvs/ and customerFeedback/, renumber image files to 1.ext, 2.ext, ...
+Scan cvs/ and customerFeedback/, renumber media files to 1.ext, 2.ext, ...
 (oldest file = 1, newest = highest number), then update data.js counts.
+Feedback folder supports images and .mp4 videos.
 """
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ from collections import Counter
 from pathlib import Path
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
+VIDEO_EXTENSIONS = {".mp4"}
+FEEDBACK_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
 
 ROOT = Path(__file__).resolve().parent
 CVS_DIR = ROOT / "cvs"
@@ -23,8 +26,12 @@ def normalize_ext(ext: str) -> str:
     return ".jpg" if ext == ".jpeg" else ext
 
 
-def is_image(path: Path) -> bool:
+def is_cv_image(path: Path) -> bool:
     return path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+
+
+def is_feedback_media(path: Path) -> bool:
+    return path.is_file() and path.suffix.lower() in FEEDBACK_EXTENSIONS
 
 
 def predominant_ext(files: list[Path]) -> str:
@@ -34,32 +41,31 @@ def predominant_ext(files: list[Path]) -> str:
     return counts.most_common(1)[0][0]
 
 
-def collect_images(folder: Path) -> list[Path]:
+def collect_files(folder: Path, matcher) -> list[Path]:
     if not folder.is_dir():
         folder.mkdir(parents=True, exist_ok=True)
         return []
 
-    images = [f for f in folder.iterdir() if is_image(f)]
-    # Oldest first -> 1.jpg; newest gets the highest number (shown first in the gallery).
-    images.sort(key=lambda p: (p.stat().st_mtime, p.name.lower()))
-    return images
+    files = [f for f in folder.iterdir() if matcher(f)]
+    files.sort(key=lambda p: (p.stat().st_mtime, p.name.lower()))
+    return files
 
 
-def renumber_folder(folder: Path, label: str) -> tuple[int, str]:
-    images = collect_images(folder)
-    if not images:
-        print(f"[{label}] No images found in {folder.name}/")
+def renumber_folder(folder: Path, label: str, matcher) -> tuple[int, str]:
+    files = collect_files(folder, matcher)
+    if not files:
+        print(f"[{label}] No media found in {folder.name}/")
         return 0, ".jpg"
 
-    ext = predominant_ext(images)
-    print(f"[{label}] Renumbering {len(images)} file(s) in {folder.name}/ -> 1{ext} .. {len(images)}{ext}")
+    ext = predominant_ext(files)
+    print(f"[{label}] Renumbering {len(files)} file(s) in {folder.name}/")
 
-    original_names = [image.name for image in images]
+    original_names = [media.name for media in files]
     temp_paths: list[Path] = []
 
-    for index, image in enumerate(images):
-        temp_path = folder / f"__renumber_temp_{index:04d}{image.suffix.lower()}"
-        image.rename(temp_path)
+    for index, media in enumerate(files):
+        temp_path = folder / f"__renumber_temp_{index:04d}{media.suffix.lower()}"
+        media.rename(temp_path)
         temp_paths.append(temp_path)
 
     for index, temp_path in enumerate(temp_paths, start=1):
@@ -68,10 +74,27 @@ def renumber_folder(folder: Path, label: str) -> tuple[int, str]:
         temp_path.rename(final_path)
         print(f"  {final_path.name}  <-  {original_names[index - 1]}")
 
-    return len(images), ext
+    return len(files), ext
 
 
-def update_data_js(total_cvs: int, cv_ext: str, total_feedbacks: int, feedback_ext: str) -> None:
+def feedback_files_newest_first(count: int) -> list[str]:
+    files: list[str] = []
+    for index in range(count, 0, -1):
+        for candidate in FEEDBACK_DIR.iterdir():
+            if candidate.is_file() and candidate.stem == str(index) and is_feedback_media(candidate):
+                files.append(candidate.name)
+                break
+    return files
+
+
+def format_feedback_files(files: list[str]) -> str:
+    if not files:
+        return "feedbackFiles: [],"
+    quoted = ", ".join(f"'{name}'" for name in files)
+    return f"feedbackFiles: [{quoted}],"
+
+
+def update_data_js(total_cvs: int, cv_ext: str, total_feedbacks: int, feedback_ext: str, feedback_files: list[str]) -> None:
     if not DATA_JS.is_file():
         raise FileNotFoundError(f"Missing {DATA_JS}")
 
@@ -82,6 +105,7 @@ def update_data_js(total_cvs: int, cv_ext: str, total_feedbacks: int, feedback_e
         (r"cvExt:\s*'[^']*'", f"cvExt: '{cv_ext}'"),
         (r"totalFeedbacks:\s*\d+", f"totalFeedbacks: {total_feedbacks}"),
         (r"feedbackExt:\s*'[^']*'", f"feedbackExt: '{feedback_ext}'"),
+        (r"feedbackFiles:\s*\[[^\]]*\],?", format_feedback_files(feedback_files)),
     ]
 
     for pattern, replacement in replacements:
@@ -95,15 +119,17 @@ def update_data_js(total_cvs: int, cv_ext: str, total_feedbacks: int, feedback_e
     print(f"  cvExt: '{cv_ext}'")
     print(f"  totalFeedbacks: {total_feedbacks}")
     print(f"  feedbackExt: '{feedback_ext}'")
+    print(f"  feedbackFiles: {feedback_files}")
 
 
 def main() -> None:
-    print("CV Factory.LK — image renumbering\n")
+    print("CV Factory.LK — media renumbering\n")
 
-    cv_count, cv_ext = renumber_folder(CVS_DIR, "CVs")
-    feedback_count, feedback_ext = renumber_folder(FEEDBACK_DIR, "Feedback")
+    cv_count, cv_ext = renumber_folder(CVS_DIR, "CVs", is_cv_image)
+    feedback_count, feedback_ext = renumber_folder(FEEDBACK_DIR, "Feedback", is_feedback_media)
+    feedback_files = feedback_files_newest_first(feedback_count)
 
-    update_data_js(cv_count, cv_ext, feedback_count, feedback_ext)
+    update_data_js(cv_count, cv_ext, feedback_count, feedback_ext, feedback_files)
     print("\nDone.")
 
 
